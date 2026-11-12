@@ -421,11 +421,13 @@ bool BruceConfigPins::importFromSd() {
 void BruceConfigPins::mirrorToSd() {
     // LittleFS is the source of truth (it is always present and is what loadFile reads). The SD
     // copy is kept in lockstep purely as an inspectable backup, so a card that is pulled and read
-    // on a PC always shows the current pins. Best-effort: never block the UI, retry once on a
-    // transient SD error, and skip entirely when no card is mounted.
-    if (!sdcardMounted) return;
-    String fp = pinsFilePath();
-    if (!copyToFs(LittleFS, SD, fp, false)) copyToFs(LittleFS, SD, fp, false);
+    // on a PC always shows the current pins. Mirror exactly how BruceConfig::saveFile() persists
+    // /bruce.conf: call setupSdCard() to actively (re)mount the card. A plain `sdcardMounted` check
+    // is not enough here — the shared keyboard/NRF/SD bus in the 3-in-1 profile can leave that flag
+    // false even with a card inserted, which silently skipped the copy. With no card setupSdCard()
+    // returns false and we skip.
+    if (!setupSdCard()) return;
+    copyToFs(LittleFS, SD, pinsFilePath(), false);
 }
 
 void BruceConfigPins::validateConfig() {
