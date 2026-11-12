@@ -131,6 +131,10 @@ public:
 
     const char *filepath = "/brucePins.conf";
 
+    // True when the active profile's pins file was just created this boot (no saved pins yet),
+    // so _post_setup_gpio() knows to populate the module's default pinout exactly once.
+    bool freshPinsFile = false;
+
     // SPI Buses
 
 #ifdef CC1101_SCK_PIN
@@ -268,8 +272,8 @@ public:
     void fromFile(bool checkFS = true);
     void loadFile(JsonDocument &jsonDoc, bool checkFS = true);
     void factoryReset();
-    String pinsKey() const;          // storage key for the active hardware profile ("<MAC>#<profile>")
-    void resetActiveProfilePins();   // drop the active profile's saved pins (defaults on next boot)
+    String pinsFilePath() const;     // per-profile pins file (Standard vs ADV 3-in-1)
+    void resetActiveProfilePins();   // delete the active profile's pins file (defaults next boot)
     void validateConfig();
     void fromJson(JsonObject obj);
     void toJson(JsonObject obj) const;

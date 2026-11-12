@@ -22,27 +22,13 @@ String getMacAddress() {
     return String(macStr);
 }
 
-// Pins are stored per hardware profile so switching profiles never clobbers the other's pins.
-// Key = "<MAC>#<profile>" (e.g. "D8:85:...#1"). Legacy files keyed by the bare MAC are migrated
-// into profile 1 (3-in-1) on load; see fromFile().
-String BruceConfigPins::pinsKey() const {
-    return getMacAddress() + "#" + String(bruceConfig.hwProfile);
-}
-
 void BruceConfigPins::fromJson(JsonObject obj) {
     int count = 0;
-    String key = pinsKey();
     String mac = getMacAddress();
 
-    JsonObject root;
-    if (!obj[key].isNull()) {
-        root = obj[key].as<JsonObject>();
-    } else if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1 && !obj[mac].isNull() &&
-               !obj[mac]["rot"].isNull()) {
-        root = obj[mac].as<JsonObject>(); // legacy flat pins → treat as the 3-in-1 profile
-    } else {
-        return saveFile(); // no pins for this profile yet → persist current defaults
-    }
+    if (obj[mac].isNull()) return saveFile();
+
+    JsonObject root = obj[mac].as<JsonObject>();
 
     if (!root["rot"].isNull()) {
         rotation = root["rot"].as<int>();
@@ -253,7 +239,7 @@ void BruceConfigPins::fromJson(JsonObject obj) {
 }
 
 void BruceConfigPins::toJson(JsonObject obj) const {
-    JsonObject root = obj[pinsKey()].to<JsonObject>();
+    JsonObject root = obj[getMacAddress()].to<JsonObject>();
 
     root["rot"] = rotation;
     root["irTx"] = irTx;
@@ -302,6 +288,13 @@ void BruceConfigPins::toJson(JsonObject obj) const {
     gps_bus.toJson(_gps);
 }
 
+// Each hardware profile keeps its own pins file, so switching profiles never clobbers the
+// other's pins. Standard keeps the historic "/brucePins.conf"; ADV 3-in-1 uses its own file.
+String BruceConfigPins::pinsFilePath() const {
+    return (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) ? String("/brucePins_adv3in1.conf")
+                                                          : String(filepath);
+}
+
 void BruceConfigPins::loadFile(JsonDocument &jsonDoc, bool checkFS) {
     FS *fs;
     if (checkFS) {
@@ -311,10 +304,13 @@ void BruceConfigPins::loadFile(JsonDocument &jsonDoc, bool checkFS) {
         else return;
     }
 
-    if (!fs->exists(filepath)) return createFile();
+    if (!fs->exists(pinsFilePath())) {
+        freshPinsFile = true; // profile has no saved pins yet → defaults populated this boot
+        return createFile();
+    }
 
     File file;
-    file = fs->open(filepath, FILE_READ);
+    file = fs->open(pinsFilePath(), FILE_READ);
     if (!file) {
         log_e("Config pins file not found. Using default values");
         return;
@@ -330,43 +326,18 @@ void BruceConfigPins::loadFile(JsonDocument &jsonDoc, bool checkFS) {
 }
 
 void BruceConfigPins::fromFile(bool checkFS) {
+    // One-time migration: the old single "/brucePins.conf" held the 3-in-1 pinout. Move it to the
+    // 3-in-1 profile's file so existing users keep their pins and Standard starts clean.
+    if (!LittleFS.exists("/brucePins_adv3in1.conf") && LittleFS.exists(filepath)) {
+        LittleFS.rename(String(filepath), "/brucePins_adv3in1.conf");
+        if (sdcardMounted && SD.exists(filepath)) SD.rename(String(filepath), "/brucePins_adv3in1.conf");
+    }
+
     JsonDocument jsonDoc;
     loadFile(jsonDoc, checkFS);
 
-    if (!jsonDoc.isNull()) {
-        JsonObject obj = jsonDoc.as<JsonObject>();
-        String mac = getMacAddress();
-        String p1 = mac + "#1";
-        // One-time migration: move legacy flat pins (pre-profile format) into the 3-in-1 slot,
-        // so existing users keep their pins after upgrading.
-        if (!obj[mac].isNull() && !obj[mac]["rot"].isNull() && obj[p1].isNull()) {
-            obj[p1].set(obj[mac]);
-            obj.remove(mac);
-            FS *fs = &LittleFS;
-            File f = fs->open(filepath, FILE_WRITE);
-            if (f) {
-                serializeJsonPretty(jsonDoc, f);
-                f.close();
-            }
-            if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
-        }
-        fromJson(obj);
-    }
+    if (!jsonDoc.isNull()) fromJson(jsonDoc.as<JsonObject>());
     jsonDoc.clear();
-}
-
-void BruceConfigPins::resetActiveProfilePins() {
-    // Remove only the active profile's saved pins; defaults are repopulated on next boot.
-    JsonDocument jsonDoc;
-    loadFile(jsonDoc);
-    if (jsonDoc.isNull()) return;
-    jsonDoc.remove(pinsKey());
-    FS *fs = &LittleFS;
-    File file = fs->open(filepath, FILE_WRITE);
-    if (!file) return;
-    serializeJsonPretty(jsonDoc, file);
-    file.close();
-    if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
 }
 
 void BruceConfigPins::createFile() {
@@ -376,7 +347,7 @@ void BruceConfigPins::createFile() {
 
     // Open file for writing
     FS *fs = &LittleFS;
-    File file = fs->open(filepath, FILE_WRITE);
+    File file = fs->open(pinsFilePath(), FILE_WRITE);
     if (!file) {
         log_e("Failed to open config file");
         file.close();
@@ -391,7 +362,7 @@ void BruceConfigPins::createFile() {
     jsonDoc.clear();
 
     // don't try to mount SD Card if not previously mounted
-    if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
+    if (sdcardMounted) copyToFs(LittleFS, SD, pinsFilePath(), false);
 }
 
 void BruceConfigPins::saveFile() {
@@ -400,12 +371,12 @@ void BruceConfigPins::saveFile() {
 
     if (jsonDoc.isNull()) return createFile();
 
-    jsonDoc.remove(pinsKey());
+    jsonDoc.remove(getMacAddress());
     toJson(jsonDoc.as<JsonObject>());
 
     // Open file for writing
     FS *fs = &LittleFS;
-    File file = fs->open(filepath, FILE_WRITE);
+    File file = fs->open(pinsFilePath(), FILE_WRITE);
     if (!file) {
         log_e("Failed to open config file");
         return;
@@ -418,14 +389,24 @@ void BruceConfigPins::saveFile() {
     file.close();
     jsonDoc.clear();
     // don't try to mount SD Card if not previously mounted
-    if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
+    if (sdcardMounted) copyToFs(LittleFS, SD, pinsFilePath(), false);
 }
 
 void BruceConfigPins::factoryReset() {
-    FS *fs = &LittleFS;
-    fs->rename(String(filepath), "/bak." + String(filepath).substring(1));
-    // don't try to mount SD Card if not previously mounted
-    if (sdcardMounted) SD.rename(String(filepath), "/bak." + String(filepath).substring(1));
+    // Back up both profiles' pins files.
+    const char *files[] = {"/brucePins.conf", "/brucePins_adv3in1.conf"};
+    for (auto f : files) {
+        String bak = "/bak." + String(f).substring(1);
+        if (LittleFS.exists(f)) LittleFS.rename(String(f), bak);
+        if (sdcardMounted && SD.exists(f)) SD.rename(String(f), bak);
+    }
+}
+
+void BruceConfigPins::resetActiveProfilePins() {
+    // Delete just the active profile's pins file; defaults are recreated on next boot.
+    String fp = pinsFilePath();
+    if (LittleFS.exists(fp)) LittleFS.remove(fp);
+    if (sdcardMounted && SD.exists(fp)) SD.remove(fp);
 }
 
 void BruceConfigPins::validateConfig() {

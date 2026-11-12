@@ -207,7 +207,7 @@ void _post_setup_gpio() {
     if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
     // Apply the clone 3-in-1 pinout as this profile's defaults only on a fresh profile (no saved
     // pins yet). After that the pins come from brucePins.conf and are user-editable.
-    bool needPinDefaults = (bruceConfigPins.NRF24_bus.cs == GPIO_NUM_NC);
+    bool needPinDefaults = bruceConfigPins.freshPinsFile;
     if (needPinDefaults) {
     // GPIO13/15 are the CC1101 GDO0/SS pins on this module, so GPS stays on Grove.
     bruceConfigPins.gps_bus.rx = (gpio_num_t)1;
