@@ -296,13 +296,12 @@ String BruceConfigPins::pinsFilePath() const {
 }
 
 void BruceConfigPins::loadFile(JsonDocument &jsonDoc, bool checkFS) {
-    FS *fs;
-    if (checkFS) {
-        if (!getFsStorage(fs)) return;
-    } else {
-        if (checkLittleFsSize()) fs = &LittleFS;
-        else return;
-    }
+    // Pins are always written to LittleFS (see saveFile/createFile), so read from LittleFS too.
+    // The old getFsStorage() path read from SD when a card was mounted, which could return a
+    // stale copy and silently drop edits (especially for a profile's freshly-created file).
+    (void)checkFS;
+    if (!checkLittleFsSize()) return;
+    FS *fs = &LittleFS;
 
     if (!fs->exists(pinsFilePath())) {
         freshPinsFile = true; // profile has no saved pins yet → defaults populated this boot
@@ -338,6 +337,10 @@ void BruceConfigPins::fromFile(bool checkFS) {
 
     if (!jsonDoc.isNull()) fromJson(jsonDoc.as<JsonObject>());
     jsonDoc.clear();
+    Serial.printf(
+        "[PINDBG] load %s fresh=%d CC1101.sck=%d\n", pinsFilePath().c_str(), freshPinsFile,
+        (int)CC1101_bus.sck
+    );
 }
 
 void BruceConfigPins::createFile() {
@@ -373,6 +376,7 @@ void BruceConfigPins::saveFile() {
 
     jsonDoc.remove(getMacAddress());
     toJson(jsonDoc.as<JsonObject>());
+    Serial.printf("[PINDBG] save %s CC1101.sck=%d\n", pinsFilePath().c_str(), (int)CC1101_bus.sck);
 
     // Open file for writing
     FS *fs = &LittleFS;
