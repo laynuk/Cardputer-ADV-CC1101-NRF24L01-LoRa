@@ -241,6 +241,18 @@ void ConfigMenu::pinsMenu() {
             {"I2C Pins",        [this]() { setI2CPinsMenu(bruceConfigPins.i2c_bus); }   },
             {"UART Pins",       [this]() { setUARTPinsMenu(bruceConfigPins.uart_bus); } },
             {"GPS Pins",        [this]() { setUARTPinsMenu(bruceConfigPins.gps_bus); }  },
+            {"Import pins from SD",
+                                [this]() {
+                 if (bruceConfigPins.importFromSd()) {
+                     std::vector<Option> r = {
+                         {"Restart now", []() { ESP.restart(); }},
+                         {"Later",       []() {}                },
+                     };
+                     loopOptions(r, MENU_TYPE_SUBMENU, "Imported from SD");
+                 } else {
+                     displayError("No pins file on SD", true);
+                 }
+             }                                                                           },
             {"Reset pins",
                                 [this]() {
                  bruceConfigPins.resetActiveProfilePins();

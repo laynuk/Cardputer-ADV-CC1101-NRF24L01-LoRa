@@ -275,6 +275,7 @@ public:
     String pinsFilePath() const;     // per-profile pins file (Standard vs ADV 3-in-1)
     void resetActiveProfilePins();   // delete the active profile's pins file (defaults next boot)
     void mirrorToSd();               // mirror the active profile's pins file LittleFS -> SD (backup)
+    bool importFromSd();             // user-initiated: copy active profile's pins file SD -> LittleFS
     void validateConfig();
     void fromJson(JsonObject obj);
     void toJson(JsonObject obj) const;

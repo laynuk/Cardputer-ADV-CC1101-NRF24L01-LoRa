@@ -406,6 +406,18 @@ void BruceConfigPins::resetActiveProfilePins() {
     if (sdcardMounted && SD.exists(fp)) SD.remove(fp);
 }
 
+bool BruceConfigPins::importFromSd() {
+    // Explicit, user-initiated import: copy the active profile's pins file from SD into LittleFS
+    // (the source of truth), so a config hand-edited on a PC can be pulled in on demand. The SD
+    // copy is never read automatically at boot; only this action treats it as input. The caller
+    // should restart afterwards so the imported pins load cleanly. Returns false when no card is
+    // mounted or the file is absent on SD.
+    if (!sdcardMounted) return false;
+    String fp = pinsFilePath();
+    if (!SD.exists(fp)) return false;
+    return copyToFs(SD, LittleFS, fp, false);
+}
+
 void BruceConfigPins::mirrorToSd() {
     // LittleFS is the source of truth (it is always present and is what loadFile reads). The SD
     // copy is kept in lockstep purely as an inspectable backup, so a card that is pulled and read
