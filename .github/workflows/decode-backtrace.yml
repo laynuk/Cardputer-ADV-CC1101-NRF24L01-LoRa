@@ -1,0 +1,153 @@
+name: Decode Backtrace
+# Decodes an ESP32-S3 (Xtensa) crash backtrace against the firmware.elf produced by a
+# previous "Manual Build" run. No local toolchain needed: it resolves addresses with
+# pyelftools (architecture-independent DWARF/symbol parsing) on the runner.
+#
+# HOW TO USE:
+#  1. Build with "Manual Build (Select Environment)" so it uploads the
+#     firmware-elf-<env> artifact. Note that run's ID (number in the run URL).
+#  2. Flash THAT run's .bin, reproduce the crash, copy the "Backtrace:" line.
+#  3. Run this workflow: paste the backtrace and the build run ID.
+#  4. Read the decoded table in the "Decode" step log.
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Run ID of the Manual Build that uploaded firmware-elf-<env>'
+        required: true
+        type: string
+      backtrace:
+        description: 'Crash backtrace (paste the whole "Backtrace: 0x..:0x.. ..." line, or just the addresses)'
+        required: true
+        type: string
+      environment:
+        description: 'Environment (must match the build)'
+        required: true
+        default: 'm5stack-cardputer'
+        type: choice
+        options:
+          - "m5stack-cardputer"
+
+permissions:
+  contents: read
+  actions: read   # needed to download an artifact from another run
+
+jobs:
+  decode:
+    name: Decode backtrace
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pyelftools
+        run: pip install pyelftools
+
+      - name: Download firmware.elf from the build run
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-elf-${{ github.event.inputs.environment }}
+          path: elf
+          run-id: ${{ github.event.inputs.build_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write decoder
+        run: |
+          cat > decode.py <<'PY'
+          import sys, re, bisect
+          from elftools.elf.elffile import ELFFile
+
+          elf_path = sys.argv[1]
+          raw = " ".join(sys.argv[2:])
+
+          # Take the PC from each "PC:SP" pair (or bare token); keep code addresses, drop stack.
+          pcs = []
+          seen = set()
+          for tok in raw.replace(",", " ").split():
+              m = re.match(r'(0x[0-9a-fA-F]{6,8})', tok.split(':')[0])
+              if not m:
+                  continue
+              a = int(m.group(1), 16)
+              if a in seen:
+                  continue
+              seen.add(a)
+              pcs.append(a)
+
+          with open(elf_path, 'rb') as f:
+              elf = ELFFile(f)
+
+              funcs = []
+              symtab = elf.get_section_by_name('.symtab')
+              if symtab:
+                  for s in symtab.iter_symbols():
+                      t = s['st_info']['type']
+                      if t in ('STT_FUNC', 'STT_NOTYPE') and s['st_value']:
+                          funcs.append((int(s['st_value']), int(s['st_size'] or 0), s.name))
+              funcs.sort()
+              fstarts = [x[0] for x in funcs]
+
+              def func_for(addr):
+                  i = bisect.bisect_right(fstarts, addr) - 1
+                  # walk back to the nearest symbol that actually contains addr (or nearest below)
+                  best = None
+                  j = i
+                  while j >= 0 and j > i - 8:
+                      val, size, name = funcs[j]
+                      if size == 0 or addr < val + size:
+                          best = name
+                          if size and val <= addr < val + size:
+                              break
+                      j -= 1
+                  if best is None and 0 <= i < len(funcs):
+                      best = funcs[i][2]
+                  return best or '??'
+
+              ranges = []
+              if elf.has_dwarf_info():
+                  dw = elf.get_dwarf_info()
+                  for CU in dw.iter_CUs():
+                      lp = dw.line_program_for_CU(CU)
+                      if lp is None:
+                          continue
+                      fe = lp['file_entry']
+                      ver = lp.header.get('version', 4)
+                      prev = None
+                      for e in lp.get_entries():
+                          st = e.state
+                          if st is None:
+                              continue
+                          if prev is not None and not prev.end_sequence:
+                              try:
+                                  idx = prev.file if ver >= 5 else prev.file - 1
+                                  nm = fe[idx].name
+                                  nm = nm.decode() if isinstance(nm, bytes) else nm
+                              except Exception:
+                                  nm = '?'
+                              ranges.append((prev.address, st.address, nm, prev.line))
+                          prev = st
+              ranges.sort()
+              rstarts = [r[0] for r in ranges]
+
+              def line_for(addr):
+                  i = bisect.bisect_right(rstarts, addr) - 1
+                  if 0 <= i < len(ranges):
+                      lo, hi, nm, ln = ranges[i]
+                      if lo <= addr < hi:
+                          return f"{nm}:{ln}"
+                  return ""
+
+              print(f"{'PC':<12} {'function':<42} location")
+              print("-" * 90)
+              for pc in pcs:
+                  print(f"0x{pc:08x}  {func_for(pc):<42} {line_for(pc)}")
+          PY
+
+      - name: Decode
+        run: |
+          ELF=$(find elf -name 'firmware.elf' | head -n1)
+          echo "ELF: $ELF"
+          echo "Backtrace input: ${{ github.event.inputs.backtrace }}"
+          echo "==================== DECODED ===================="
+          python decode.py "$ELF" "${{ github.event.inputs.backtrace }}"
