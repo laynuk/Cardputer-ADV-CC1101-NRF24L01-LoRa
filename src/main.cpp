@@ -80,6 +80,12 @@ static void taskEncoderPoll(void *parameter) {
 }
 #endif
 
+// The in-app menus run in the Arduino loopTask (loop() -> mainMenu.begin()). The deeply nested
+// Device Pins save path (menu -> saveFile -> JsonDocument -> copyToFs/setupSdCard -> FatFS mount)
+// overflows loopTask's default 8 KB stack, which showed up as a stack-canary reboot on pin save
+// with a corrupted backtrace. Give loopTask a larger stack; costs ~8 KB RAM (plenty of heap free).
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 TaskHandle_t xHandle;
 void __attribute__((weak)) taskInputHandler(void *parameter) {
     auto timer = millis();
