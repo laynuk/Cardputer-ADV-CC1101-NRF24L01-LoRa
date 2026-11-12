@@ -72,3 +72,12 @@ jobs:
           path: Bruce-*.*
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload ELF (for crash decoding)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-elf-${{ env.SELECTED_ENV }}
+          path: .pio/build/${{ env.SELECTED_ENV }}/firmware.elf
+          if-no-files-found: error
+          retention-days: 7
