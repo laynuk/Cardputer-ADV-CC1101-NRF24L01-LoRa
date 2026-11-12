@@ -160,12 +160,11 @@ void _setup_gpio() {
     pinMode(15, OUTPUT);
     digitalWrite(15, HIGH);
 }
-volatile bool kb_interrupt = false;
-void IRAM_ATTR gpio_isr_handler(void *arg) {
-    kb_interrupt = true;
-    // static long i = 0;
-    // Serial.printf("interrupt %ld\n", i++);
-}
+// The TCA8418 keyboard is serviced by polling taskInputHandler (every ~10ms, reading
+// digitalRead(11) and the TCA event FIFO). No GPIO ISR is installed: attachInterrupt() here
+// used to install the ESP-IDF GPIO ISR service, which runs esp_intr_alloc()+malloc() on the
+// small (~1KB) IPC task and intermittently overflowed its stack (stack-canary crash on the
+// first boot after a profile switch). Polling already drives all input, so the ISR was redundant.
 void _post_setup_gpio() {
     // Initialize TCA8418 I2C keyboard controller
     Serial.println("DEBUG: Cardputer ADV - Initializing TCA8418 keyboard");
@@ -253,7 +252,9 @@ void _post_setup_gpio() {
     tca.writeRegister(TCA8418_REG_GPI_EM_3, 0x00);
     tca.flush();
     pinMode(11, INPUT);
-    attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
+    // TCA8418 drives GPIO11 LOW while its event FIFO is non-empty; we poll that pin instead of
+    // installing a GPIO ISR (see note above _post_setup_gpio). enableInterrupts() stays so the
+    // controller keeps asserting INT on key events for the poller to detect.
     tca.enableInterrupts();
     // Release GPIO8/9 only after the keyboard controller is configured.
     // Only the 3-in-1 profile parks the keyboard pins for NRF24; Standard keeps I2C live.
@@ -333,13 +334,6 @@ void InputHandler(void) {
                 lockSysI2CBus();
                 setI2cPinsToI2c();
             }
-            if (!kb_interrupt) {
-                detachInterrupt(digitalPinToInterrupt(11));
-                attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
-                Serial.println("Forcing keyboard interrupt, Restoring Interruptions.");
-                kb_interrupt = true;
-            }
-
             for (int pass = 0; pass < 3; ++pass) {
                 while (tca.available() > 0) {
                     int keyEvent = tca.getEvent();
@@ -473,22 +467,16 @@ void InputHandler(void) {
                 tca.readRegister(TCA8418_REG_GPIO_INT_STAT_3);
                 tca.writeRegister(TCA8418_REG_INT_STAT, 0x1F);
                 int intstat = tca.readRegister(TCA8418_REG_INT_STAT);
-                if ((intstat & 0x1F) == 0 && digitalRead(11) == HIGH) {
-                    kb_interrupt = false;
-                    break;
-                }
+                if ((intstat & 0x1F) == 0 && digitalRead(11) == HIGH) { break; }
                 if (pass == 2 && digitalRead(11) == LOW) {
                     tca.flush();
                     tca.writeRegister(TCA8418_REG_INT_STAT, 0x1F);
-                    kb_interrupt = false;
                 }
             }
             if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
                 setI2cPinsTooutput();
                 unlockSysI2CBus();
             }
-        } else {
-            kb_interrupt = false;
         }
 
         unsigned long now = millis();

@@ -337,10 +337,6 @@ void BruceConfigPins::fromFile(bool checkFS) {
 
     if (!jsonDoc.isNull()) fromJson(jsonDoc.as<JsonObject>());
     jsonDoc.clear();
-    Serial.printf(
-        "[PINDBG] load %s fresh=%d CC1101.sck=%d\n", pinsFilePath().c_str(), freshPinsFile,
-        (int)CC1101_bus.sck
-    );
 }
 
 void BruceConfigPins::createFile() {
@@ -364,8 +360,7 @@ void BruceConfigPins::createFile() {
     file.close();
     jsonDoc.clear();
 
-    // don't try to mount SD Card if not previously mounted
-    if (sdcardMounted) copyToFs(LittleFS, SD, pinsFilePath(), false);
+    mirrorToSd();
 }
 
 void BruceConfigPins::saveFile() {
@@ -376,7 +371,6 @@ void BruceConfigPins::saveFile() {
 
     jsonDoc.remove(getMacAddress());
     toJson(jsonDoc.as<JsonObject>());
-    Serial.printf("[PINDBG] save %s CC1101.sck=%d\n", pinsFilePath().c_str(), (int)CC1101_bus.sck);
 
     // Open file for writing
     FS *fs = &LittleFS;
@@ -392,8 +386,7 @@ void BruceConfigPins::saveFile() {
 
     file.close();
     jsonDoc.clear();
-    // don't try to mount SD Card if not previously mounted
-    if (sdcardMounted) copyToFs(LittleFS, SD, pinsFilePath(), false);
+    mirrorToSd();
 }
 
 void BruceConfigPins::factoryReset() {
@@ -411,6 +404,16 @@ void BruceConfigPins::resetActiveProfilePins() {
     String fp = pinsFilePath();
     if (LittleFS.exists(fp)) LittleFS.remove(fp);
     if (sdcardMounted && SD.exists(fp)) SD.remove(fp);
+}
+
+void BruceConfigPins::mirrorToSd() {
+    // LittleFS is the source of truth (it is always present and is what loadFile reads). The SD
+    // copy is kept in lockstep purely as an inspectable backup, so a card that is pulled and read
+    // on a PC always shows the current pins. Best-effort: never block the UI, retry once on a
+    // transient SD error, and skip entirely when no card is mounted.
+    if (!sdcardMounted) return;
+    String fp = pinsFilePath();
+    if (!copyToFs(LittleFS, SD, fp, false)) copyToFs(LittleFS, SD, fp, false);
 }
 
 void BruceConfigPins::validateConfig() {
