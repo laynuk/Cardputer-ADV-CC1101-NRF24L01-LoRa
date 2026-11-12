@@ -193,23 +193,30 @@ void ConfigMenu::systemMenu() {
 **  Select the hardware profile (pin set + module behaviour). Applied on restart.
 **********************************************************************/
 void ConfigMenu::hwProfileMenu() {
+    // Switching profile changes bus/pin handling that is only set up at boot, so picking a
+    // different profile saves it and restarts immediately. We can't offer "restart later":
+    // once hwProfile changes live the keyboard handling flips while the hardware is still set up
+    // for the old profile, leaving no working keyboard to confirm with.
     int current = bruceConfig.hwProfile;
     std::vector<Option> opts = {
-        {"Standard",   [=]() { bruceConfig.setHwProfile(HW_PROFILE_STANDARD); },
+        {"Standard",
+         [current]() {
+             if (current != HW_PROFILE_STANDARD) {
+                 bruceConfig.setHwProfile(HW_PROFILE_STANDARD);
+                 ESP.restart();
+             }
+         },
          current == HW_PROFILE_STANDARD},
-        {"ADV 3-in-1", [=]() { bruceConfig.setHwProfile(HW_PROFILE_ADV_3IN1); },
+        {"ADV 3-in-1",
+         [current]() {
+             if (current != HW_PROFILE_ADV_3IN1) {
+                 bruceConfig.setHwProfile(HW_PROFILE_ADV_3IN1);
+                 ESP.restart();
+             }
+         },
          current == HW_PROFILE_ADV_3IN1},
     };
     loopOptions(opts, MENU_TYPE_SUBMENU, "HW Profile");
-
-    // Pins and bus handling are applied in _post_setup_gpio() at boot, so a restart is needed.
-    if (bruceConfig.hwProfile != current) {
-        std::vector<Option> restartOpts = {
-            {"Restart now", []() { ESP.restart(); }},
-            {"Later",       []() {}                },
-        };
-        loopOptions(restartOpts, MENU_TYPE_SUBMENU, "Restart to apply");
-    }
 }
 
 /*********************************************************************
@@ -219,8 +226,8 @@ void ConfigMenu::hwProfileMenu() {
 void ConfigMenu::pinsMenu() {
     while (true) {
         std::vector<Option> localOptions = {
-            {String("HW Profile: ") +
-                 (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1 ? "ADV 3-in-1" : "Standard"),
+            {String("Profile: ") +
+                 (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1 ? "3-in-1" : "Std"),
              [this]() { hwProfileMenu(); }                                           },
             {"I2C Finder",      [this]() { find_i2c_addresses(); }                      },
             {"CC1101 Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.CC1101_bus); }},
@@ -234,7 +241,7 @@ void ConfigMenu::pinsMenu() {
             {"I2C Pins",        [this]() { setI2CPinsMenu(bruceConfigPins.i2c_bus); }   },
             {"UART Pins",       [this]() { setUARTPinsMenu(bruceConfigPins.uart_bus); } },
             {"GPS Pins",        [this]() { setUARTPinsMenu(bruceConfigPins.gps_bus); }  },
-            {"Reset pins to default",
+            {"Reset pins",
                                 [this]() {
                  bruceConfigPins.resetActiveProfilePins();
                  std::vector<Option> r = {

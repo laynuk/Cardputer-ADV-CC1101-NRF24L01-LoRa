@@ -524,6 +524,8 @@ void nrf_jammer() {
                 } // end else: normal (non-pure-jam) path
             }
 
+            // In pure-jam the keyboard is parked; ignore stray nav/exit keys until G0 resumes it.
+            if (!g_pureJam) {
             if (check(NextPress)) {
                 modeIndex++;
                 if (modeIndex >= (int)(sizeof(modes) / sizeof(modes[0]))) modeIndex = 0;
@@ -564,6 +566,7 @@ void nrf_jammer() {
                 waitForKeyRelease = true;
                 keyDownSwitchCount = getSysI2CPinsSwitchCount();
             }
+            } // end !g_pureJam nav
             if (AnyKeyPress && !EscPress && !NextPress && !PrevPress && !SelPress) {
                 AnyKeyPress = false;
             }
