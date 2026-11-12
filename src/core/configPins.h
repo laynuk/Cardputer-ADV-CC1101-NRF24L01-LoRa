@@ -268,6 +268,8 @@ public:
     void fromFile(bool checkFS = true);
     void loadFile(JsonDocument &jsonDoc, bool checkFS = true);
     void factoryReset();
+    String pinsKey() const;          // storage key for the active hardware profile ("<MAC>#<profile>")
+    void resetActiveProfilePins();   // drop the active profile's saved pins (defaults on next boot)
     void validateConfig();
     void fromJson(JsonObject obj);
     void toJson(JsonObject obj) const;

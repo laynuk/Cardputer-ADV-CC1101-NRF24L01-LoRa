@@ -205,6 +205,10 @@ void _post_setup_gpio() {
     // Standard profile the radios keep their brucePins.conf values (editable, persisted),
     // and G8/G9 stay a plain I2C keyboard bus.
     if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+    // Apply the clone 3-in-1 pinout as this profile's defaults only on a fresh profile (no saved
+    // pins yet). After that the pins come from brucePins.conf and are user-editable.
+    bool needPinDefaults = (bruceConfigPins.NRF24_bus.cs == GPIO_NUM_NC);
+    if (needPinDefaults) {
     // GPIO13/15 are the CC1101 GDO0/SS pins on this module, so GPS stays on Grove.
     bruceConfigPins.gps_bus.rx = (gpio_num_t)1;
     bruceConfigPins.gps_bus.tx = (gpio_num_t)2;
@@ -231,10 +235,12 @@ void _post_setup_gpio() {
     bruceConfigPins.LoRa_bus.io2 = (gpio_num_t)4;
 #endif
 
+    } // end applying default pinout
     pinMode(bruceConfigPins.CC1101_bus.cs, OUTPUT);
     pinMode(bruceConfigPins.LoRa_bus.cs, OUTPUT);
     digitalWrite(bruceConfigPins.CC1101_bus.cs, HIGH);
     digitalWrite(bruceConfigPins.LoRa_bus.cs, HIGH);
+    if (needPinDefaults) bruceConfigPins.saveFile();
     } // end ADV 3-in-1 pin setup
 
     tca.matrix(7, 8);

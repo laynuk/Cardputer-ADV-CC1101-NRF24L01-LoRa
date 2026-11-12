@@ -234,6 +234,15 @@ void ConfigMenu::pinsMenu() {
             {"I2C Pins",        [this]() { setI2CPinsMenu(bruceConfigPins.i2c_bus); }   },
             {"UART Pins",       [this]() { setUARTPinsMenu(bruceConfigPins.uart_bus); } },
             {"GPS Pins",        [this]() { setUARTPinsMenu(bruceConfigPins.gps_bus); }  },
+            {"Reset pins to default",
+                                [this]() {
+                 bruceConfigPins.resetActiveProfilePins();
+                 std::vector<Option> r = {
+                     {"Restart now", []() { ESP.restart(); }},
+                     {"Later",       []() {}                },
+                 };
+                 loopOptions(r, MENU_TYPE_SUBMENU, "Restart to apply");
+             }                                                                           },
             {"Back",            []() {}                                                 },
         };
         int selected = loopOptions(localOptions, MENU_TYPE_SUBMENU, "Device Pins");

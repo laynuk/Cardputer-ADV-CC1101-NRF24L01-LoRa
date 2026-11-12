@@ -22,13 +22,27 @@ String getMacAddress() {
     return String(macStr);
 }
 
+// Pins are stored per hardware profile so switching profiles never clobbers the other's pins.
+// Key = "<MAC>#<profile>" (e.g. "D8:85:...#1"). Legacy files keyed by the bare MAC are migrated
+// into profile 1 (3-in-1) on load; see fromFile().
+String BruceConfigPins::pinsKey() const {
+    return getMacAddress() + "#" + String(bruceConfig.hwProfile);
+}
+
 void BruceConfigPins::fromJson(JsonObject obj) {
     int count = 0;
+    String key = pinsKey();
     String mac = getMacAddress();
 
-    if (obj[mac].isNull()) return saveFile();
-
-    JsonObject root = obj[mac].as<JsonObject>();
+    JsonObject root;
+    if (!obj[key].isNull()) {
+        root = obj[key].as<JsonObject>();
+    } else if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1 && !obj[mac].isNull() &&
+               !obj[mac]["rot"].isNull()) {
+        root = obj[mac].as<JsonObject>(); // legacy flat pins → treat as the 3-in-1 profile
+    } else {
+        return saveFile(); // no pins for this profile yet → persist current defaults
+    }
 
     if (!root["rot"].isNull()) {
         rotation = root["rot"].as<int>();
@@ -239,7 +253,7 @@ void BruceConfigPins::fromJson(JsonObject obj) {
 }
 
 void BruceConfigPins::toJson(JsonObject obj) const {
-    JsonObject root = obj[getMacAddress()].to<JsonObject>();
+    JsonObject root = obj[pinsKey()].to<JsonObject>();
 
     root["rot"] = rotation;
     root["irTx"] = irTx;
@@ -319,8 +333,40 @@ void BruceConfigPins::fromFile(bool checkFS) {
     JsonDocument jsonDoc;
     loadFile(jsonDoc, checkFS);
 
-    if (!jsonDoc.isNull()) fromJson(jsonDoc.as<JsonObject>());
+    if (!jsonDoc.isNull()) {
+        JsonObject obj = jsonDoc.as<JsonObject>();
+        String mac = getMacAddress();
+        String p1 = mac + "#1";
+        // One-time migration: move legacy flat pins (pre-profile format) into the 3-in-1 slot,
+        // so existing users keep their pins after upgrading.
+        if (!obj[mac].isNull() && !obj[mac]["rot"].isNull() && obj[p1].isNull()) {
+            obj[p1].set(obj[mac]);
+            obj.remove(mac);
+            FS *fs = &LittleFS;
+            File f = fs->open(filepath, FILE_WRITE);
+            if (f) {
+                serializeJsonPretty(jsonDoc, f);
+                f.close();
+            }
+            if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
+        }
+        fromJson(obj);
+    }
     jsonDoc.clear();
+}
+
+void BruceConfigPins::resetActiveProfilePins() {
+    // Remove only the active profile's saved pins; defaults are repopulated on next boot.
+    JsonDocument jsonDoc;
+    loadFile(jsonDoc);
+    if (jsonDoc.isNull()) return;
+    jsonDoc.remove(pinsKey());
+    FS *fs = &LittleFS;
+    File file = fs->open(filepath, FILE_WRITE);
+    if (!file) return;
+    serializeJsonPretty(jsonDoc, file);
+    file.close();
+    if (sdcardMounted) copyToFs(LittleFS, SD, filepath, false);
 }
 
 void BruceConfigPins::createFile() {
@@ -354,7 +400,7 @@ void BruceConfigPins::saveFile() {
 
     if (jsonDoc.isNull()) return createFile();
 
-    jsonDoc.remove(getMacAddress());
+    jsonDoc.remove(pinsKey());
     toJson(jsonDoc.as<JsonObject>());
 
     // Open file for writing
