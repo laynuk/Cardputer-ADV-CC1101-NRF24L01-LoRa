@@ -68,6 +68,14 @@ extern XPowersPPM PPM;
 
 extern int8_t interpreter_state; // -1 - stopped, 0 - background, 1 - waiting for foreground, 2 - foreground
 
+// NRF24 "pure jam" mode (Cardputer ADV 3-in-1, where NRF24 shares the keyboard I2C pins).
+// g_pureJam:       when true, InputHandler suspends keyboard polling so the carrier is never
+//                  interrupted by a bus borrow (maximum jamming). Toggled with the G0 button.
+// g_jammerOwnsG0:  when true, InputHandler ignores the G0 shoulder button so the NRF jammer can
+//                  use it as the pure-jam toggle without also firing a Select press.
+extern volatile bool g_pureJam;
+extern volatile bool g_jammerOwnsG0;
+
 extern BruceConfig bruceConfig;
 extern BruceConfigPins bruceConfigPins;
 extern SerialCli serialCli;

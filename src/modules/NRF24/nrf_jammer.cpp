@@ -4,6 +4,9 @@
 #include "core/mykeyboard.h"
 #include "nrf_common.h"
 #include <globals.h>
+#ifdef HAS_RGB_LED
+#include "core/led_control.h"
+#endif
 
 static void shuffleChannels(uint8_t *arr, size_t count) {
     for (size_t i = count - 1; i > 0; i--) {
@@ -133,6 +136,10 @@ void nrf_jammer() {
         bool jammerRadioActive = false;
         bool hwTxVerified = false;
         bool waitForKeyRelease = false;
+        bool g0Prev = (digitalRead(0) == LOW); // G0 edge tracking for the pure-jam toggle
+        unsigned long lastG0Ms = 0;             // debounce for the G0 toggle
+        g_jammerOwnsG0 = true;                  // take G0 over from InputHandler while jamming
+        g_pureJam = false;                      // always start in normal (navigable) mode
         uint32_t keyDownSwitchCount = 0;
         int16_t statusLineY = -1;
         int displayedStatusActive = -1;
@@ -335,6 +342,19 @@ void nrf_jammer() {
         vTaskDelay(50 / portTICK_PERIOD_MS);
 
         while (true) {
+            // G0 (shoulder button) toggles pure-jam on a falling edge (press). In pure-jam the
+            // keyboard is parked and the carrier runs uninterrupted; press again to resume.
+            bool g0now = (digitalRead(0) == LOW);
+            if (g0now && !g0Prev && millis() - lastG0Ms > 250) {
+                lastG0Ms = millis();
+                g_pureJam = !g_pureJam;
+                redraw = true;
+#ifdef HAS_RGB_LED
+                setLedColor(g_pureJam ? CRGB(60, 0, 0) : CRGB(0, 0, 0));
+#endif
+            }
+            g0Prev = g0now;
+
             if ((CHECK_NRF_UART(mode)) || (CHECK_NRF_BOTH(mode))) {
                 if (OnX == 0) {
                     NRFSerial.println("RADIOS");
@@ -374,12 +394,12 @@ void nrf_jammer() {
                     padprintln("RANGE: " + String(2400 + lo) + "-" + String(2400 + hi) + " MHz");
                     padprintln("HOP  : " + String(hopping_mode == 0 ? "Sequential " : "FHSS        "));
                     padprintln("> Cfg:Sel  Switch:Next/Prev");
-                    padprintln("> Exit: Esc");
+                    padprintln(g_pureJam ? "> PURE JAM | G0 resumes KB" : "> Exit:Esc  G0:pure jam");
                 } else {
                     padprintln("HOP  : " + String(hopping_mode == 0 ? "Sequential " : "FHSS        "));
                     padprintln("> Switch Mode: Next/Prev");
                     padprintln("> Hop Mode: Sel");
-                    padprintln("> Exit: Esc");
+                    padprintln(g_pureJam ? "> PURE JAM | G0 resumes KB" : "> Exit:Esc  G0:pure jam");
                 }
 
                 drawTxBarFrame();
@@ -411,6 +431,23 @@ void nrf_jammer() {
                 ch_idx = hopIndex;
             }
             if (CHECK_NRF_SPI(mode)) {
+                if (g_pureJam) {
+                    // Pure-jam: keyboard polling is suspended (InputHandler returns early), so no
+                    // bus borrow interrupts the carrier and GPIO11 must be ignored. Just keep the
+                    // radio armed and hop the channel every pass for an uninterrupted jam.
+                    uint8_t targetCh = modes[modeIndex].channels[ch_idx];
+                    if (!jammerRadioActive) {
+                        configureJammerRadio(true, targetCh);
+                    } else {
+                        digitalWrite(bruceConfigPins.NRF24_bus.io0, HIGH);
+                        NRFradio.setChannel(targetCh);
+                        hwTxVerified = true;
+                        lastVerifiedCh = targetCh;
+                        if (targetCh < 125) txChSeen[targetCh] = 1;
+                        verifiedHops++;
+                    }
+                    updateStatusDisplay(jammerRadioActive && hwTxVerified);
+                } else {
                 if (waitForKeyRelease) {
                     updateStatusDisplay(false);
                     // Wait for the user to release the navigation key (which triggers a second
@@ -472,6 +509,7 @@ void nrf_jammer() {
                         updateStatusDisplay(jammerRadioActive && hwTxVerified);
                     }
                 }
+                } // end else: normal (non-pure-jam) path
             }
 
             if (check(NextPress)) {
@@ -526,6 +564,13 @@ void nrf_jammer() {
             unlockSysI2CBus();
         }
         if ((CHECK_NRF_UART(mode)) || (CHECK_NRF_BOTH(mode))) { NRFSerial.println("OFF"); }
+
+        // Hand G0 and the keyboard back to InputHandler and clear the pure-jam indicator.
+        g_pureJam = false;
+        g_jammerOwnsG0 = false;
+#ifdef HAS_RGB_LED
+        setLedColor(CRGB(0, 0, 0));
+#endif
 
     } else {
         displayError("NRF24 not found", true);

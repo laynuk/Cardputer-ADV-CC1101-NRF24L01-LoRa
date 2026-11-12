@@ -290,7 +290,8 @@ void InputHandler(void) {
     bool arrow_le = false;
     if (!UseTCA8418 && millis() - tm < 200 && !LongPress) return;
 
-    if (digitalRead(0) == LOW) { // GPIO0 button, shoulder button
+    // While the NRF jammer owns G0 (pure-jam toggle), don't let it act as the Select button.
+    if (!g_jammerOwnsG0 && digitalRead(0) == LOW) { // GPIO0 button, shoulder button
         tm = millis();
         if (!wakeUpScreen()) yield();
         else return;
@@ -299,6 +300,10 @@ void InputHandler(void) {
     }
 
     if (UseTCA8418) {
+        // Pure-jam mode: keep the NRF24 carrier continuous by not touching the shared
+        // keyboard I2C bus at all. The jammer reads G0 directly to leave this mode.
+        if (g_pureJam) return;
+
         bool keyEventHandled = false;
         bool nextPulse = false;
         bool prevPulse = false;

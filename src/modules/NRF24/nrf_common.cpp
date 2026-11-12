@@ -6,6 +6,11 @@ RF24 NRFradio(bruceConfigPins.NRF24_bus.io0, bruceConfigPins.NRF24_bus.cs);
 HardwareSerial NRFSerial = HardwareSerial(2); // Uses UART2 for External NRF's
 SPIClass *NRFSPI;
 
+// Pure-jam coordination flags (see globals.h). Defined here so every board that builds the
+// NRF modules links them, while only the Cardputer ADV interface actually reads g_pureJam.
+volatile bool g_pureJam = false;
+volatile bool g_jammerOwnsG0 = false;
+
 void nrf_info() {
     tft.fillScreen(bruceConfig.bgColor);
     tft.setTextSize(FM);
