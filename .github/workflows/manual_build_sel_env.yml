@@ -1,0 +1,74 @@
+name: Manual Build (Select Environment)
+# Minimal build workflow for this fork (base already hardcodes BRUCE_VERSION,
+# so no version-injection sed is needed). Produces Bruce-<env>.bin via build.py.
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to build from'
+        required: true
+        default: 'pure-jam-mode'
+        type: string
+      environment:
+        description: 'Environment to build'
+        required: true
+        default: 'm5stack-cardputer'
+        type: choice
+        options:
+          - "m5stack-cardputer"
+
+jobs:
+  compile_selected:
+    name: Build ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    env:
+      SELECTED_ENV: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('platformio.ini') }}
+          restore-keys: ${{ runner.os }}-platformio-
+
+      - name: Install dependencies
+        run: |
+          pip install requests esptool intelhex
+          pip install platformio
+
+      - name: Run Compile
+        run: |
+          set -o pipefail
+          echo "Building environment: ${{ env.SELECTED_ENV }}"
+          platformio run -e "${{ env.SELECTED_ENV }}" | tee "build-${{ env.SELECTED_ENV }}.log"
+
+      - name: Build log tail
+        if: always()
+        run: tail -n 100 "build-${{ env.SELECTED_ENV }}.log" || echo "no log"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ env.SELECTED_ENV }}
+          path: build-*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bruce-${{ env.SELECTED_ENV }}
+          path: Bruce-*.*
+          if-no-files-found: error
+          retention-days: 7
