@@ -201,6 +201,10 @@ void _post_setup_gpio() {
     bruceConfigPins.sys_i2c.sda = (gpio_num_t)8;
     bruceConfigPins.sys_i2c.scl = (gpio_num_t)9;
 
+    // The 3-in-1 module pinout is applied in code only for the ADV 3-in-1 profile. In the
+    // Standard profile the radios keep their brucePins.conf values (editable, persisted),
+    // and G8/G9 stay a plain I2C keyboard bus.
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
     // GPIO13/15 are the CC1101 GDO0/SS pins on this module, so GPS stays on Grove.
     bruceConfigPins.gps_bus.rx = (gpio_num_t)1;
     bruceConfigPins.gps_bus.tx = (gpio_num_t)2;
@@ -231,6 +235,7 @@ void _post_setup_gpio() {
     pinMode(bruceConfigPins.LoRa_bus.cs, OUTPUT);
     digitalWrite(bruceConfigPins.CC1101_bus.cs, HIGH);
     digitalWrite(bruceConfigPins.LoRa_bus.cs, HIGH);
+    } // end ADV 3-in-1 pin setup
 
     tca.matrix(7, 8);
     // Disable GPIO interrupts and FIFO events on unused TCA8418 pins (ROW7, COL8, COL9)
@@ -245,7 +250,8 @@ void _post_setup_gpio() {
     attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
     tca.enableInterrupts();
     // Release GPIO8/9 only after the keyboard controller is configured.
-    setI2cPinsTooutput();
+    // Only the 3-in-1 profile parks the keyboard pins for NRF24; Standard keeps I2C live.
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) setI2cPinsTooutput();
 }
 
 /*********************************************************************
@@ -316,8 +322,11 @@ void InputHandler(void) {
         keyStroke key;
 
         if (digitalRead(11) == LOW) {
-            lockSysI2CBus();
-            setI2cPinsToI2c();
+            // The bus-sharing dance is only needed when NRF24 shares G8/G9 (3-in-1 profile).
+            if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+                lockSysI2CBus();
+                setI2cPinsToI2c();
+            }
             if (!kb_interrupt) {
                 detachInterrupt(digitalPinToInterrupt(11));
                 attachInterruptArg(digitalPinToInterrupt(11), gpio_isr_handler, nullptr, CHANGE);
@@ -468,8 +477,10 @@ void InputHandler(void) {
                     kb_interrupt = false;
                 }
             }
-            setI2cPinsTooutput();
-            unlockSysI2CBus();
+            if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+                setI2cPinsTooutput();
+                unlockSysI2CBus();
+            }
         } else {
             kb_interrupt = false;
         }
@@ -625,11 +636,15 @@ void _setup_codec_speaker(bool enable) {
     };
     static constexpr const uint8_t disabled_bulk_data[] = {0};
 
-    lockSysI2CBus();
-    setI2cPinsToI2c();
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+        lockSysI2CBus();
+        setI2cPinsToI2c();
+    }
     i2c_bulk_write(&Wire1, ES8311_ADDR, enable ? enabled_bulk_data : disabled_bulk_data);
-    setI2cPinsTooutput();
-    unlockSysI2CBus();
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+        setI2cPinsTooutput();
+        unlockSysI2CBus();
+    }
 }
 
 /*********************************************************************
@@ -666,9 +681,13 @@ void _setup_codec_mic(bool enable) {
         0
     };
 
-    lockSysI2CBus();
-    setI2cPinsToI2c();
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+        lockSysI2CBus();
+        setI2cPinsToI2c();
+    }
     i2c_bulk_write(&Wire1, ES8311_ADDR, enable ? enabled_bulk_data : disabled_bulk_data);
-    setI2cPinsTooutput();
-    unlockSysI2CBus();
+    if (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1) {
+        setI2cPinsTooutput();
+        unlockSysI2CBus();
+    }
 }

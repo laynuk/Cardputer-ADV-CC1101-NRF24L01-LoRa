@@ -66,6 +66,7 @@ JsonDocument BruceConfig::toJson() const {
     setting["wigleBasicToken"] = wigleBasicToken;
     setting["wdgwarsApiKey"] = wdgwarsApiKey;
     setting["devMode"] = devMode;
+    setting["hwProfile"] = hwProfile;
     setting["colorInverted"] = colorInverted;
 
     setting["badUSBBLEKeyboardLayout"] = badUSBBLEKeyboardLayout;
@@ -375,6 +376,12 @@ void BruceConfig::fromFile(bool checkFS) {
     }
     if (!setting["devMode"].isNull()) {
         devMode = setting["devMode"].as<int>();
+    } else {
+        count++;
+        log_e("Fail");
+    }
+    if (!setting["hwProfile"].isNull()) {
+        hwProfile = setting["hwProfile"].as<int>();
     } else {
         count++;
         log_e("Fail");
@@ -759,6 +766,13 @@ void BruceConfig::setWigleBasicToken(String value) {
 
 void BruceConfig::setWdgwarsApiKey(String value) {
     wdgwarsApiKey = value;
+    saveFile();
+}
+
+void BruceConfig::setHwProfile(int value) {
+    // 0 = Standard, 1 = ADV 3-in-1 (see HwProfile in configPins.h). Clamp to valid range.
+    if (value < 0 || value > 1) value = 1;
+    hwProfile = value;
     saveFile();
 }
 

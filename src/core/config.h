@@ -86,6 +86,7 @@ public:
     String wigleBasicToken = "";
     String wdgwarsApiKey = "your 64-char hex key from wdgwars.pl/profile";
     int devMode = 0;
+    int hwProfile = 1; // HwProfile: 0=standard, 1=ADV 3-in-1. Default 1 (this is the 3-in-1 fork).
     int colorInverted = 1;
     int badUSBBLEKeyboardLayout = 0;
     uint16_t badUSBBLEKeyDelay = 10;
@@ -189,6 +190,7 @@ public:
     void setWigleBasicToken(String value);
     void setWdgwarsApiKey(String value);
     void setDevMode(int value);
+    void setHwProfile(int value);
     void validateDevModeValue();
     void setColorInverted(int value);
     void validateColorInverted();

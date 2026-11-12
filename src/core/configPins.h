@@ -24,6 +24,16 @@ enum RFModules {
     CC1101_SPI_MODULE = 1,
 };
 
+// Hardware profile (bruceConfig.hwProfile). Applied at boot; switching requires a restart.
+// ADV_3IN1: AliExpress 3-in-1 cap where NRF24 CE/CSN share the keyboard I2C pins (G8/G9),
+//           needing the bus-sharing dance + G0 pure-jam. Default for this fork.
+// STANDARD: behaves like stock Bruce - keyboard on its own I2C, radios on brucePins.conf pins,
+//           no bus dance, no G0 takeover. For modules wired to their own pins.
+enum HwProfile {
+    HW_PROFILE_STANDARD = 0,
+    HW_PROFILE_ADV_3IN1 = 1,
+};
+
 class BruceConfigPins {
 public:
     struct UARTPins {

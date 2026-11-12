@@ -188,9 +188,63 @@ void ConfigMenu::systemMenu() {
 **  Function: advancedMenu
 **  Advanced settings submenu (nested under System Config)
 **********************************************************************/
+/*********************************************************************
+**  Function: hwProfileMenu
+**  Select the hardware profile (pin set + module behaviour). Applied on restart.
+**********************************************************************/
+void ConfigMenu::hwProfileMenu() {
+    int current = bruceConfig.hwProfile;
+    std::vector<Option> opts = {
+        {"Standard",   [=]() { bruceConfig.setHwProfile(HW_PROFILE_STANDARD); },
+         current == HW_PROFILE_STANDARD},
+        {"ADV 3-in-1", [=]() { bruceConfig.setHwProfile(HW_PROFILE_ADV_3IN1); },
+         current == HW_PROFILE_ADV_3IN1},
+    };
+    loopOptions(opts, MENU_TYPE_SUBMENU, "HW Profile");
+
+    // Pins and bus handling are applied in _post_setup_gpio() at boot, so a restart is needed.
+    if (bruceConfig.hwProfile != current) {
+        std::vector<Option> restartOpts = {
+            {"Restart now", []() { ESP.restart(); }},
+            {"Later",       []() {}                },
+        };
+        loopOptions(restartOpts, MENU_TYPE_SUBMENU, "Restart to apply");
+    }
+}
+
+/*********************************************************************
+**  Function: pinsMenu
+**  Hardware profile + device pin configuration (moved here from Dev Mode).
+**********************************************************************/
+void ConfigMenu::pinsMenu() {
+    while (true) {
+        std::vector<Option> localOptions = {
+            {String("HW Profile: ") +
+                 (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1 ? "ADV 3-in-1" : "Standard"),
+             [this]() { hwProfileMenu(); }                                           },
+            {"I2C Finder",      [this]() { find_i2c_addresses(); }                      },
+            {"CC1101 Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.CC1101_bus); }},
+            {"NRF24  Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.NRF24_bus); } },
+#if !defined(LITE_VERSION)
+            {"LoRa Pins",       [this]() { setSPIPinsMenu(bruceConfigPins.LoRa_bus); }  },
+            {"ST25R3916 Pins",  [this]() { setSPIPinsMenu(bruceConfigPins.ST25R_bus); } },
+            {"W5500 Pins",      [this]() { setSPIPinsMenu(bruceConfigPins.W5500_bus); } },
+#endif
+            {"SDCard Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.SDCARD_bus); }},
+            {"I2C Pins",        [this]() { setI2CPinsMenu(bruceConfigPins.i2c_bus); }   },
+            {"UART Pins",       [this]() { setUARTPinsMenu(bruceConfigPins.uart_bus); } },
+            {"GPS Pins",        [this]() { setUARTPinsMenu(bruceConfigPins.gps_bus); }  },
+            {"Back",            []() {}                                                 },
+        };
+        int selected = loopOptions(localOptions, MENU_TYPE_SUBMENU, "Device Pins");
+        if (selected == -1 || selected == (int)localOptions.size() - 1) { return; }
+    }
+}
+
 void ConfigMenu::advancedMenu() {
     while (true) {
         std::vector<Option> localOptions = {
+            {"Device Pins",    [this]() { pinsMenu(); }           },
 #if !defined(LITE_VERSION)
             {"Toggle BLE API", [this]() { enableBLEAPI(); }       },
             {"BadUSB/BLE",     [this]() { setBadUSBBLEMenu(); }   },
@@ -266,18 +320,7 @@ void ConfigMenu::powerMenu() {
 void ConfigMenu::devMenu() {
     while (true) {
         std::vector<Option> localOptions = {
-            {"I2C Finder",      [this]() { find_i2c_addresses(); }                      },
-            {"CC1101 Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.CC1101_bus); }},
-            {"NRF24  Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.NRF24_bus); } },
-#if !defined(LITE_VERSION)
-            {"LoRa Pins",       [this]() { setSPIPinsMenu(bruceConfigPins.LoRa_bus); }  },
-            {"ST25R3916 Pins",  [this]() { setSPIPinsMenu(bruceConfigPins.ST25R_bus); } },
-            {"W5500 Pins",      [this]() { setSPIPinsMenu(bruceConfigPins.W5500_bus); } },
-#endif
-            {"SDCard Pins",     [this]() { setSPIPinsMenu(bruceConfigPins.SDCARD_bus); }},
-            {"I2C Pins",        [this]() { setI2CPinsMenu(bruceConfigPins.i2c_bus); }   },
-            {"UART Pins",       [this]() { setUARTPinsMenu(bruceConfigPins.uart_bus); } },
-            {"GPS Pins",        [this]() { setUARTPinsMenu(bruceConfigPins.gps_bus); }  },
+            // Pin configuration moved to System Config -> Advanced -> Device Pins.
             {"Serial USB",      [this]() { switchToUSBSerial(); }                       },
             {"Serial UART",     [this]() { switchToUARTSerial(); }                      },
             {"Disable DevMode", [this]() { bruceConfig.setDevMode(false); }             },

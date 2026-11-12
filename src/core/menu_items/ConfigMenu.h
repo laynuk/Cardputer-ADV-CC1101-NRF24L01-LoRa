@@ -21,6 +21,8 @@ private:
     void advancedMenu(void);
     void powerMenu(void);
     void devMenu(void);
+    void pinsMenu(void);
+    void hwProfileMenu(void);
 
     // Helper methods for complex operations
     void switchToUSBSerial(void);

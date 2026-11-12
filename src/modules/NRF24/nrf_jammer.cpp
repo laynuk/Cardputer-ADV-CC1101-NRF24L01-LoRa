@@ -138,7 +138,9 @@ void nrf_jammer() {
         bool waitForKeyRelease = false;
         bool g0Prev = (digitalRead(0) == LOW); // G0 edge tracking for the pure-jam toggle
         unsigned long lastG0Ms = 0;             // debounce for the G0 toggle
-        g_jammerOwnsG0 = true;                  // take G0 over from InputHandler while jamming
+        // Only the 3-in-1 profile shares pins with the keyboard, so pure-jam/G0 takeover only
+        // applies there. In Standard, G0 stays a normal button and the jammer runs stock.
+        g_jammerOwnsG0 = (bruceConfig.hwProfile == HW_PROFILE_ADV_3IN1);
         g_pureJam = false;                      // always start in normal (navigable) mode
         uint32_t keyDownSwitchCount = 0;
         int16_t statusLineY = -1;
@@ -344,16 +346,18 @@ void nrf_jammer() {
         while (true) {
             // G0 (shoulder button) toggles pure-jam on a falling edge (press). In pure-jam the
             // keyboard is parked and the carrier runs uninterrupted; press again to resume.
-            bool g0now = (digitalRead(0) == LOW);
-            if (g0now && !g0Prev && millis() - lastG0Ms > 250) {
-                lastG0Ms = millis();
-                g_pureJam = !g_pureJam;
-                redraw = true;
+            if (g_jammerOwnsG0) {
+                bool g0now = (digitalRead(0) == LOW);
+                if (g0now && !g0Prev && millis() - lastG0Ms > 250) {
+                    lastG0Ms = millis();
+                    g_pureJam = !g_pureJam;
+                    redraw = true;
 #ifdef HAS_RGB_LED
-                setLedColor(g_pureJam ? CRGB(60, 0, 0) : CRGB(0, 0, 0));
+                    setLedColor(g_pureJam ? CRGB(60, 0, 0) : CRGB(0, 0, 0));
 #endif
+                }
+                g0Prev = g0now;
             }
-            g0Prev = g0now;
 
             if ((CHECK_NRF_UART(mode)) || (CHECK_NRF_BOTH(mode))) {
                 if (OnX == 0) {
@@ -394,12 +398,20 @@ void nrf_jammer() {
                     padprintln("RANGE: " + String(2400 + lo) + "-" + String(2400 + hi) + " MHz");
                     padprintln("HOP  : " + String(hopping_mode == 0 ? "Sequential " : "FHSS        "));
                     padprintln("> Cfg:Sel  Switch:Next/Prev");
-                    padprintln(g_pureJam ? "> PURE JAM | G0 resumes KB" : "> Exit:Esc  G0:pure jam");
+                    padprintln(
+                        !g_jammerOwnsG0 ? "> Exit: Esc"
+                        : g_pureJam     ? "> PURE JAM | G0 resumes KB"
+                                        : "> Exit:Esc  G0:pure jam"
+                    );
                 } else {
                     padprintln("HOP  : " + String(hopping_mode == 0 ? "Sequential " : "FHSS        "));
                     padprintln("> Switch Mode: Next/Prev");
                     padprintln("> Hop Mode: Sel");
-                    padprintln(g_pureJam ? "> PURE JAM | G0 resumes KB" : "> Exit:Esc  G0:pure jam");
+                    padprintln(
+                        !g_jammerOwnsG0 ? "> Exit: Esc"
+                        : g_pureJam     ? "> PURE JAM | G0 resumes KB"
+                                        : "> Exit:Esc  G0:pure jam"
+                    );
                 }
 
                 drawTxBarFrame();

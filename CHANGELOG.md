@@ -3,38 +3,63 @@
 Changes on top of the heyajohnny 3-in-1 fork. Kept separate so they stay portable
 if the fork is ever rebased onto a newer Bruce.
 
-## [pure-jam-mode] — NRF24 jammer: G0 pure-jam toggle
+---
+
+## [pure-jam-mode] — NRF24 jammer: G0 pure-jam toggle  ✅ tested on hardware
 
 On the Cardputer ADV 3-in-1 module the NRF24 CE/CSN share the keyboard's I2C pins.
-During jamming the keyboard polling keeps borrowing those pins, which interrupts the
-carrier and slows the hop loop, so a Bluetooth target leaks through in short bursts.
-This adds a "pure jam" mode that parks the keyboard and runs the carrier continuously,
-matching the effectiveness of a standalone NRF24.
+During jamming the keyboard polling keeps borrowing those pins, interrupting the carrier,
+so a Bluetooth target leaks through. This adds a "pure jam" mode that parks the keyboard and
+runs the carrier continuously.
 
 ### Added
-- **G0 toggles pure-jam** inside the NRF jammer (`nrf_jammer.cpp`). Falling-edge detect
-  with a 250 ms debounce; press to enter max-jam, press again to resume the keyboard.
-- **Continuous-carrier fast path** in the jammer's SPI loop: when pure-jam is on, the
-  GPIO11 / bus-switch-count checks are skipped and the radio just hops channels, so the
-  carrier is never dropped.
-- **State indicator**: the on-screen hint line shows `PURE JAM | G0 resumes KB` vs
-  `Exit:Esc  G0:pure jam`, and the RGB LED turns dim red in pure-jam (`#ifdef HAS_RGB_LED`).
-- Two shared flags in `globals.h` / `nrf_common.cpp`:
-  - `g_pureJam` — InputHandler suspends keyboard polling while true.
-  - `g_jammerOwnsG0` — InputHandler ignores the G0 shoulder button while the jammer owns it.
+- **G0 toggles pure-jam** in the jammer (falling edge, 250 ms debounce). Press to enter
+  max-jam, press again to resume the keyboard. Exit the jammer with Esc (keyboard active).
+- **Continuous-carrier fast path**: in pure-jam the GPIO11 / bus-switch checks are skipped.
+- **Indicator**: on-screen hint + dim-red RGB LED (`#ifdef HAS_RGB_LED`).
+- Flags `g_pureJam` / `g_jammerOwnsG0` (globals.h / nrf_common.cpp).
 
-### Changed
-- `boards/m5stack-cardputer/interface.cpp` — `InputHandler`:
-  - G0 shoulder-button → Select is gated on `!g_jammerOwnsG0`.
-  - the TCA8418 keyboard-poll block returns early when `g_pureJam` (no bus borrow).
+Files: interface.cpp, nrf_jammer.cpp, nrf_common.cpp, globals.h.
 
-### Behaviour notes
-- Exit the jammer with **Esc** (keyboard must be active, i.e. pure-jam off). So to leave:
-  G0 to resume the keyboard, then Esc.
-- Scope is the **jammer only**; spectrum and mousejack are unchanged.
-- Jamming on-air is illegal in most regions — intended for tests on your own hardware.
+---
 
-### Not tested
-- Built blind (no hardware/PlatformIO in the authoring environment). Compiles are
-  brace-balanced and anchored to the 1.16 source, but verify on-device:
-  G0 toggle, LED/indicator, continuous carrier vs. a BT target, and clean exit.
+## [hw-profiles] — Hardware profiles (Standard ↔ ADV 3-in-1)  ⚠️ NOT yet tested
+
+Lets one build switch between the 3-in-1 cap and a normally-wired module, instead of the
+3-in-1 wiring being hardcoded. Delivered as two commits so Stage 2 can be reverted alone.
+
+### Stage 1 — profile flag, menu, behaviour gating
+- `bruceConfig.hwProfile` (0 = Standard, 1 = ADV 3-in-1). **Default 1** so existing users keep
+  working after the update. Persisted in bruce.conf.
+- All 3-in-1-specific behaviour is gated on the profile:
+  - `_post_setup_gpio`: the clone pinout + G8/G9 parking only in 3-in-1.
+  - `InputHandler`: the I2C bus-sharing "dance" only in 3-in-1; Standard reads the keyboard
+    plainly (Wire1 stays I2C).
+  - codec (ES8311) access: dance only in 3-in-1.
+  - `nrf_jammer`: G0/pure-jam only in 3-in-1; in Standard G0 stays a normal button and the
+    jammer runs stock.
+- **Menu moved**: pin config left the Dev menu — now under `System Config → Advanced →
+  Device Pins`, with a `HW Profile` selector. Switching a profile prompts a restart (pins are
+  applied at boot).
+
+### Stage 2 — per-profile editable pins
+- Pins stored per profile, keyed `"<MAC>#<profile>"`, so switching never clobbers the other
+  profile's pins.
+- The 3-in-1 clone pinout becomes the **editable default** of profile 1 (applied once on a
+  fresh profile, then taken from brucePins.conf). Standard defaults to unset — you configure
+  it for your module.
+- **Migration**: legacy flat pin entries (pre-profile) are moved into profile 1 on first load.
+- **Reset pins to default** (per profile) in the Device Pins menu — lighter recovery than a
+  full factory reset. Factory reset still clears both profiles.
+
+Files: config.h/.cpp, configPins.h/.cpp, interface.cpp, nrf_jammer.cpp, ConfigMenu.h/.cpp.
+
+### Test carefully (built blind — no PlatformIO/hardware in the authoring environment)
+- **3-in-1 profile (default):** everything works exactly as before (keyboard, CC1101, LoRa,
+  NRF scanner, G0 pure-jam). Existing pins survive the update (migration).
+- **Standard profile:** switch in the menu → restart → the keyboard still works, G0 is a
+  normal button, and a module on its own pins (set via Device Pins) works.
+- **Per-profile pins:** edit pins in one profile, switch, switch back — each keeps its own.
+- **Reset pins to default** and **Factory reset** behave as described.
+- Highest-risk spots to watch: the ArduinoJson migration copy (`obj[p1].set(obj[mac])`), the
+  Standard-profile keyboard read path, and the `needPinDefaults` first-boot populate.
